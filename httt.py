@@ -37,13 +37,15 @@ def crawl(url_channel):
         "Country": snippet.get("country", "N/A"),
         "Subscribers": int(stats.get("subscriberCount", 0)),
         "Total_videos": int(stats.get("videoCount", 0)),
-        "Avatar": snippet["thumbnails"]["high"]["url"] if "thumbnails" in snippet else None
+        "Avatar": snippet["thumbnails"]["high"]["url"] if "thumbnails" in snippet else None,
+        "Description": snippet.get("description", "Không có mô tả"),
+        "List_id": channel_id
     }
 
 def save(file_csv):
-    df = pd.DataFrame([file_csv])
-    csv = df.to_csv(index=False)
-    csv_bytes = BytesIO(csv.encode("utf-8"))
+    df = pd.DataFrame([file_csv])  # Chuyển dictionary thành DataFrame
+    csv_bytes = BytesIO()
+    df.to_csv(csv_bytes, index=False, encoding="utf-8-sig")  # Lưu file với UTF-8 (hỗ trợ tiếng Việt)
     csv_bytes.seek(0)
     return csv_bytes
 
@@ -119,6 +121,9 @@ def main():
                     st.text(f"Created: {data['Created']}")
                     st.text(f"Added to ViralStat: {data['Add_to_ViralStat']}")
                     st.text(f"Country: {data['Country']}")
+                    st.text(f"List ID: {data['List_id']}")
+                    st.markdown("**Description:**")
+                    st.write(data["Description"])
                 
                 col1, col2 = st.columns([1, 1])
                 with col1:
@@ -134,12 +139,12 @@ def main():
             if st.button("Lưu CSV"):
                 data = st.session_state.crawled_data
                 csv_bytes = save(data)
-                
+        
                 st.success("Đã tạo file CSV! Nhấn nút dưới đây để tải về.")
                 st.download_button(
-                    label="Tải xuống CSV",
+                    label="📥 Tải xuống CSV",
                     data=csv_bytes,
-                    file_name="data.csv",
+                    file_name="youtube_channel_data.csv",
                     mime="text/csv"
                 )
     
