@@ -7,6 +7,8 @@ from io import BytesIO
 
 API_KEY = "AIzaSyANUWlnh43MDqZ3SS0DqCRiR8ns_5aP5DY"
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/channels"
+YOUTUBE_VIDEO_API_URL = "https://www.googleapis.com/youtube/v3/search"
+YOUTUBE_COMMENTS_API_URL = "https://www.googleapis.com/youtube/v3/commentThreads"
 
 def get_channel_id(url):
     response = requests.get(url)
@@ -15,6 +17,100 @@ def get_channel_id(url):
     
     match = re.search(r'"externalId":"(UC[\w-]+)"', response.text)
     return match.group(1) if match else "Không tìm thấy channel_id"
+
+def get_recent_videos(channel_id):
+    # Bước 1: Lấy 10 video gần nhất
+    params = {
+        "part": "snippet",
+        "channelId": channel_id,
+        "maxResults": 10,
+        "order": "date",
+        "type": "video",
+        "key": API_KEY
+    }
+    response = requests.get(YOUTUBE_VIDEO_API_URL, params=params)
+    data = response.json()
+
+    if "items" not in data:
+        return []
+    
+    videos = []
+    video_ids = []
+
+    for item in data["items"]:
+        video_id = item["id"]["videoId"]
+        video_ids.append(video_id)
+        videos.append({
+            "channel_name": item["snippet"]["channelTitle"],
+            "title": item["snippet"]["title"],
+            "published_date": item["snippet"]["publishedAt"],
+            "id": video_id,
+            "link": f"https://www.youtube.com/watch?v={video_id}"
+        })
+
+    # Bước 2: Gọi API videos để lấy views và comments
+    stats_url = "https://www.googleapis.com/youtube/v3/videos"
+    stats_params = {
+        "part": "statistics",
+        "id": ",".join(video_ids),
+        "key": API_KEY
+    }
+    stats_response = requests.get(stats_url, params=stats_params)
+    stats_data = stats_response.json()
+
+    stats_dict = {}
+    for item in stats_data.get("items", []):
+        stats_dict[item["id"]] = {
+            "views": item["statistics"].get("viewCount", "N/A"),
+            "comments": item["statistics"].get("commentCount", "N/A")
+        }
+
+    # Bước 3: Gộp lại với danh sách video
+    for v in videos:
+        vid = v["id"]
+        v["views"] = stats_dict.get(vid, {}).get("views", "N/A")
+        v["comments"] = stats_dict.get(vid, {}).get("comments", "N/A")
+
+    return videos
+
+def get_all_comments(video_id, channel_name, video_title):
+    """Lấy toàn bộ bình luận từ video bằng cách xử lý nextPageToken."""
+    comments_list = []
+    next_page_token = None
+
+    while True:
+        params = {
+            "part": "snippet",
+            "videoId": video_id,
+            "maxResults": 100,  # Số lượng tối đa mỗi lần request
+            "textFormat": "plainText",
+            "key": API_KEY
+        }
+        if next_page_token:
+            params["pageToken"] = next_page_token
+        
+        response = requests.get(YOUTUBE_COMMENTS_API_URL, params=params)
+        comments_data = response.json()
+
+        if "items" in comments_data:
+            for item in comments_data["items"]:
+                comment_snippet = item["snippet"]["topLevelComment"]["snippet"]
+                comments_list.append({
+                    "channelID": channel_name,
+                    "videoID": video_id,
+                    "Title": video_title,
+                    "comment": comment_snippet["textDisplay"],
+                    "authorDisplayName": comment_snippet["authorDisplayName"],
+                    "publishedAt": comment_snippet["publishedAt"]
+                })
+
+        # Kiểm tra nếu còn trang tiếp theo
+        next_page_token = comments_data.get("nextPageToken")
+        if not next_page_token:
+            break  # Dừng khi không còn bình luận nào nữa
+
+    return comments_list
+
 
 def crawl(url_channel):
     channel_id = get_channel_id(url_channel)
@@ -31,15 +127,17 @@ def crawl(url_channel):
     snippet = channel_info["snippet"]
     stats = channel_info["statistics"]
     
+    recent_videos = get_recent_videos(channel_id)
+
     return {
         "Created": snippet.get("publishedAt", "N/A")[:10],
-        "Add_to_ViralStat": "N/A",
         "Country": snippet.get("country", "N/A"),
         "Subscribers": int(stats.get("subscriberCount", 0)),
         "Total_videos": int(stats.get("videoCount", 0)),
         "Avatar": snippet["thumbnails"]["high"]["url"] if "thumbnails" in snippet else None,
         "Description": snippet.get("description", "Không có mô tả"),
-        "List_id": channel_id
+        "List_id": channel_id,
+        "Recent_videos": recent_videos
     }
 
 def save(file_csv):
@@ -119,7 +217,7 @@ def main():
                 with col2:
                     st.markdown("**Kênh YouTube**")
                     st.text(f"Created: {data['Created']}")
-                    st.text(f"Added to ViralStat: {data['Add_to_ViralStat']}")
+                    st.text(f"Added to ViralStat: {data.get('Add_to_ViralStat', 'N/A')}")
                     st.text(f"Country: {data['Country']}")
                     st.text(f"List ID: {data['List_id']}")
                     st.markdown("**Description:**")
@@ -132,21 +230,48 @@ def main():
                 with col2:
                     st.text("Total_videos")
                     st.markdown(f"### {data['Total_videos']}")
+
+                # 🟢 Hiển thị danh sách 10 video gần nhất
+                if "Recent_videos" in data and data["Recent_videos"]:
+                    st.markdown("### 📺 Danh sách 10 video gần nhất")
+                    df_videos = pd.DataFrame(data["Recent_videos"])
+                    
+                    # Cho phép chọn một video
+                    selected_video_index = st.selectbox("Chọn một video để xem chi tiết:", df_videos.index, format_func=lambda x: df_videos.iloc[x]["title"])
+                    
+                    # Lấy dữ liệu của video đã chọn
+                    selected_video = df_videos.iloc[selected_video_index]
+                    
+                    # Hiển thị thông tin chi tiết về video đã chọn
+                    st.markdown("### 🎥 Chi tiết Video đã chọn")
+                    st.write(f"**Tiêu đề:** {selected_video['title']}")
+                    st.write(f"**Video ID:** {selected_video['id']}")
+                    st.write(f"**Lượt xem:** {selected_video['views']}")
+                    st.write(f"**Số bình luận:** {selected_video['comments']}")
+                    
+                    st.info("🔄 Đang lấy toàn bộ bình luận, vui lòng chờ...")
+            comments_list = get_all_comments(selected_video["id"], selected_video["channel_name"], selected_video["title"])
+
+            if comments_list:
+                df_comments = pd.DataFrame(comments_list)
                 
-                st.session_state.crawled_data = data
-        
-        if "crawled_data" in st.session_state:
-            if st.button("Lưu CSV"):
-                data = st.session_state.crawled_data
-                csv_bytes = save(data)
-        
-                st.success("Đã tạo file CSV! Nhấn nút dưới đây để tải về.")
+                st.markdown("### 💬 Danh sách bình luận")
+                st.dataframe(df_comments)
+
+                # Nút tải về file CSV
+                csv_file = BytesIO()
+                df_comments.to_csv(csv_file, index=False, encoding="utf-8-sig")
+                csv_file.seek(0)
+
                 st.download_button(
-                    label="📥 Tải xuống CSV",
-                    data=csv_bytes,
-                    file_name="youtube_channel_data.csv",
+                    label="📥 Tải về CSV",
+                    data=csv_file,
+                    file_name=f"{selected_video['id']}_comments.csv",
                     mime="text/csv"
                 )
+            else:
+                st.warning("Không tìm thấy bình luận nào cho video này!")
+
     
     elif page == "Statistical":
         st.title("Thống kê")
