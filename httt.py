@@ -219,10 +219,21 @@ def main():
                 st.write(f"**Subscribers:** {data['Subscribers']}")
                 st.write(f"**Total Videos:** {data['Total_videos']}")
                 st.write(f"**Description:** {data['Description']}")
-
+            st.write("**Danh sách 10 video gần nhất**")
             # 🟢 Lưu danh sách video vào session_state để tránh reload mất dữ liệu
             if "Recent_videos" not in st.session_state:
                 st.session_state["Recent_videos"] = data["Recent_videos"]
+                
+            df_videos = pd.DataFrame(st.session_state["Recent_videos"])
+            # 🟢 Thêm phần tải về CSV
+            if not df_videos.empty:
+                csv_data = df_videos.to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    label="Tải danh sách video gần nhất về máy",
+                    data=csv_data,
+                    file_name="recent_videos.csv",
+                    mime="text/csv"
+                )
 
             # 🟢 Dropdown chọn video
             video_ids = [video["id"] for video in st.session_state["Recent_videos"]]
@@ -233,6 +244,7 @@ def main():
             st.write(f"**Tiêu đề video:** {selected_video['title']}")
             st.write(f"**Lượt xem:** {selected_video['views']}")
             st.write(f"**Số bình luận:** {selected_video['comments']}")
+            
 
             # 🟢 Lấy bình luận chỉ khi chưa có
             if "video_comments" not in st.session_state or st.session_state["video_comments"]["video_id"] != selected_video_id:
