@@ -263,7 +263,34 @@ def main():
                     file_name="comments.csv",
                     mime="text/csv"
                 )
+            # 🟢 Nút lấy toàn bộ comment của tất cả video
+            if st.button("Lấy toàn bộ bình luận của 10 video"):
+                all_comments = []
+                for video in st.session_state["Recent_videos"]:
+                    st.info(f"Đang lấy bình luận từ video: {video['title']}")
+                    comments = get_all_comments(video["id"], data["List_id"], video["title"])
+                    all_comments.extend(comments)
 
+                # Lưu toàn bộ comment vào session
+                st.session_state["all_video_comments"] = all_comments
+                st.success("Đã lấy xong toàn bộ bình luận!")
+
+            # 🟢 Hiển thị bảng toàn bộ bình luận nếu có
+            if "all_video_comments" in st.session_state:
+                df_all_comments = pd.DataFrame(st.session_state["all_video_comments"])
+                
+                if not df_all_comments.empty:
+                    st.write("### Toàn bộ bình luận của tất cả các video")
+                    st.dataframe(df_all_comments)
+
+                    # Tải về CSV
+                    csv_data = df_all_comments.to_csv(index=False, encoding="utf-8-sig")
+                    st.download_button(
+                        label="Tải toàn bộ bình luận về máy",
+                        data=csv_data,
+                        file_name="all_video_comments.csv",
+                        mime="text/csv"
+                    )
     
     elif page == "Statistical":
         st.title("Thống kê")
